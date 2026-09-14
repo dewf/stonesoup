@@ -1,0 +1,8 @@
+name "stonesoup"
+description "various functionality I miss in Phobos"
+authors "DanielG"
+copyright "Copyright © 2026, DanielG"
+license "MIT"
+
+targetType "library"
+targetPath "./lib"

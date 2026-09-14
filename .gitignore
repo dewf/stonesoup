@@ -1,0 +1,17 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/stonesoup
+stonesoup.so
+stonesoup.dylib
+stonesoup.dll
+libstonesoup.a
+stonesoup.a
+stonesoup.lib
+stonesoup-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
