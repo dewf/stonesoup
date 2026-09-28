@@ -17,7 +17,14 @@ string lowerFirst(string s) {
 	return toLower(s[0]) ~ s[1 .. $];
 }
 
-string sumtype(string input) {
+enum ExpressionMatchStyles {
+	Simple = 1,
+	AssocArray = 1 << 1,
+	Visitor = 1 << 2,
+	All = Simple | AssocArray | Visitor
+}
+
+string sumtype(string input, ExpressionMatchStyles matchStyles = ExpressionMatchStyles.All) {
 	auto maybeSumType = parseSumType(input);
 	if (maybeSumType.isNull) return "static assert(0, \"sumtype: bad format\")";
 	auto def = maybeSumType.get();
@@ -134,67 +141,73 @@ EOF";
 	output ~= "        return inputCases == checkAgainst;\n";
 	output ~= "    }\n"; // end isExhaustive
 
-	// basic match expression
-	output ~= "\n";
-	output ~= "    // basic match expression =====================\n";
-	output ~= "    _MatchResult match(_MatchResult)(\n";
-	auto delegateArgs = def.cases.map!(c => format("        _MatchResult delegate(%s) %sFunc", c.name.upperFirst(), c.name.lowerFirst())).join(",\n");
-	output ~= format("%s)\n", delegateArgs);
-	output ~= "    {\n";
-	output ~= "        final switch(_tag) {\n";
-	foreach (c; def.cases) {
-		output ~= format("            case Tag.%s:\n", c.name.upperFirst());
-		output ~= format("                return %sFunc(content.%s);\n", c.name.lowerFirst(), c.name.lowerFirst());
+	// simple match expression
+	if (matchStyles & ExpressionMatchStyles.Simple) {
+		output ~= "\n";
+		output ~= "    // basic match expression =====================\n";
+		output ~= "    _MatchResult match(_MatchResult)(\n";
+		auto delegateArgs = def.cases.map!(c => format("        _MatchResult delegate(%s) %sFunc", c.name.upperFirst(), c.name.lowerFirst())).join(",\n");
+		output ~= format("%s)\n", delegateArgs);
+		output ~= "    {\n";
+		output ~= "        final switch(_tag) {\n";
+		foreach (c; def.cases) {
+			output ~= format("            case Tag.%s:\n", c.name.upperFirst());
+			output ~= format("                return %sFunc(content.%s);\n", c.name.lowerFirst(), c.name.lowerFirst());
+		}
+		output ~= "        }\n"; // end final switch
+		output ~= "    }\n"; // end basic match expression
 	}
-	output ~= "        }\n"; // end final switch
-	output ~= "    }\n"; // end basic match expression
 
 	// associative array style match
-	output ~= "\n";
-	output ~= q"EOF
-    alias ReturnDelegate(_MatchResult) = _MatchResult delegate();
-    alias MatchExpr(_MatchResult) = ReturnDelegate!_MatchResult[Tag]; // unfortunately needed for casting :(
-    _MatchResult match(_MatchResult)(ReturnDelegate!_MatchResult[Tag] delegateMap) {
-        if (auto found = _tag in delegateMap) {
-            return (*found)();
-        } else if (auto found = TagAny in delegateMap) {
-            return (*found)();
-        } else {
+	if (matchStyles & ExpressionMatchStyles.AssocArray) {
+		output ~= "\n";
+		output ~= q"EOF
+	alias ReturnDelegate(_MatchResult) = _MatchResult delegate();
+	alias MatchExpr(_MatchResult) = ReturnDelegate!_MatchResult[Tag]; // unfortunately needed for casting :(
+	_MatchResult match(_MatchResult)(ReturnDelegate!_MatchResult[Tag] delegateMap) {
+		if (auto found = _tag in delegateMap) {
+			return (*found)();
+		} else if (auto found = TagAny in delegateMap) {
+			return (*found)();
+		} else {
 EOF";
-	output ~= format("            throw new Exception(\"%s.match() - unhandled tag(%%s)\", _tag.stringof);\n", def.name.upperFirst());
-	output ~= "        }\n"; // end else
-	output ~= "    }\n"; // end AA style match
+		output ~= format("            throw new Exception(\"%s.match() - unhandled tag(%%s)\", _tag.stringof);\n", def.name.upperFirst());
+		output ~= "        }\n"; // end else
+		output ~= "    }\n"; // end AA style match
+	}
 
 	// visitor-style match expression
-	output ~= "\n";
-	output ~= "    // visitor-style match expression =============\n";
-	output ~= "    abstract class Matcher(_MatchResult) {\n";
-	foreach (c; def.cases) {
-		auto args = c.params.map!(p => format("%s %s", p.type, p.name)).join(", ");
-		output ~= format("        _MatchResult %s(%s) => any();\n", c.name.lowerFirst(), args);
-	}
-	output ~= "        _MatchResult any() {\n";
-	output ~= format("            assert(0, \"%s.Matcher.any() called, but not implemented\");\n", def.name.upperFirst());
-	output ~= "        }\n";
-	output ~= "        // convenience method to reduce a little bit of typing:\n";
-	output ~= format("        _MatchResult match(%s thing) {\n", def.name.upperFirst);
-	output ~= "            return thing.match(this);\n";
-	output ~= "        }\n";
-	output ~= "    }\n";
+	if (matchStyles & ExpressionMatchStyles.Visitor) {
+		output ~= "\n";
+		output ~= "    // visitor-style match expression =============\n";
+		output ~= "    abstract class Matcher(_MatchResult) {\n";
+		foreach (c; def.cases) {
+			auto args = c.params.map!(p => format("%s %s", p.type, p.name)).join(", ");
+			output ~= format("        _MatchResult %s(%s) => any();\n", c.name.lowerFirst(), args);
+		}
+		output ~= "        _MatchResult any() {\n";
+		output ~= format("            assert(0, \"%s.Matcher.any() called, but not implemented\");\n", def.name.upperFirst());
+		output ~= "        }\n";
+		output ~= "        // convenience method to reduce a little bit of typing:\n";
+		output ~= format("        _MatchResult match(%s thing) {\n", def.name.upperFirst);
+		output ~= "            return thing.match(this);\n";
+		output ~= "        }\n";
+		output ~= "    }\n";
 
-	// visit method
-	output ~= "\n";
-	output ~= "    _MatchResult match(_MatchResult)(Matcher!_MatchResult matcher) {\n";
-	output ~= "        final switch(_tag) {\n";
-	foreach (c; def.cases) {
-		output ~= format("            case Tag.%s:\n", c.name.upperFirst());
-		auto args = c.params.map!(p => format("content.%s.%s", c.name.lowerFirst(), p.name)).join(", ");
-		output ~= format("                return matcher.%s(%s);\n", c.name.lowerFirst(), args);
+		// visit method
+		output ~= "\n";
+		output ~= "    _MatchResult match(_MatchResult)(Matcher!_MatchResult matcher) {\n";
+		output ~= "        final switch(_tag) {\n";
+		foreach (c; def.cases) {
+			output ~= format("            case Tag.%s:\n", c.name.upperFirst());
+			auto args = c.params.map!(p => format("content.%s.%s", c.name.lowerFirst(), p.name)).join(", ");
+			output ~= format("                return matcher.%s(%s);\n", c.name.lowerFirst(), args);
+		}
+		output ~= "        }\n"; // end final switch
+		output ~= "    }\n"; // end match()
 	}
-	output ~= "        }\n"; // end final switch
-	output ~= "    }\n"; // end match()
 
-	output ~= "}\n"; // end struct!
+	output ~= "}\n"; // end struct
 
 	return output[];
 }
