@@ -1,5 +1,6 @@
 module stonesoup.sumtype.parser;
 
+import std.stdio;
 import stonesoup.sumtype.tokenizer: Token, tokenize;
 import std.typecons: Nullable, nullable;
 
@@ -43,6 +44,22 @@ T tryToken(T)(Token[] input, int index, T delegate(Token t) func) {
 		return func(input[index]);
 	}
 	return T.init;
+}
+
+bool tryToken(T)(Token[] input, int index, T delegate(Token t) func, out T outVar) {
+	if (input.length > index) {
+		outVar = func(input[index]);
+		return true;
+	}
+	return false;
+}
+
+void advance(ref Token[] tokens) {
+	if (tokens.length > 0) {
+		tokens = tokens[1..$];
+	} else {
+		throw new Exception("advance() on tokens failed - none left!");
+	}
 }
 
 bool parseParam(Token[] input, out Param outParam, out Token[] etc) {
@@ -97,7 +114,7 @@ bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
 		// no params, just name
 		outCase = Case(name, []);
 		// advance past name
-		input = input[1..$];
+		advance(input);
 		// comma required unless we're at the end of input
 		if (input.length > 0 && input[0].isComma()) {
 			// OK
@@ -129,18 +146,56 @@ Case[] parseCases(Token[] input) {
 
 struct SumType {
 	string name;
+	string[] typeParams;
 	Case[] cases;
+}
+
+string[] parseTypeParams(Token[] input) {
+	string[] typeParams;
+	string current;
+	while(tryToken(input, 0, t => t.isIdentifier(), current)) {
+		typeParams ~= current;
+		// advance past identifier
+		advance(input);
+		if (input.length == 0) {
+			// all done
+			return typeParams;
+		} else if (tryToken(input, 0, t => t.isComma())) {
+			// skip comma and continue
+			advance(input);
+		}
+	}
+	return null;
 }
 
 Nullable!SumType parseSumType(string input) {
 	auto tokens = tokenize(input);
 	if (auto name = tryToken(tokens, 0, t => t.isIdentifier())) {
-		if (tryToken(tokens, 1, t => t.isLeftBrace)) {
+		// this advancing is bad in general, because we're mutating something that doesn't only belong to this branch
+		// this this function we don't have any 'else' branches, so it's OK for the moment
+		advance(tokens);
+
+		// does it have type parameters?
+		string[] typeParams;
+		if (tryToken(tokens, 0, t => t.isLeftParen)) {
+			Token[] afterRightParen;
+			if (auto content = contentBetween(Token.Tag.LeftParen, Token.Tag.RightParen, tokens[0..$], afterRightParen)) {
+				if (auto tp = parseTypeParams(content)) {
+					// cool, done
+					typeParams = tp;
+					// advance beyond
+					tokens = afterRightParen;
+				}
+			}
+		}
+
+		// parse content
+		if (tryToken(tokens, 0, t => t.isLeftBrace)) {
 			// might have something ...
 			Token[] etc_unused;
-			if (auto content = contentBetween(Token.Tag.LeftBrace, Token.Tag.RightBrace, tokens[1..$], etc_unused)) {
+			if (auto content = contentBetween(Token.Tag.LeftBrace, Token.Tag.RightBrace, tokens[0..$], etc_unused)) {
 				auto cases = parseCases(content);
-				return nullable(SumType(name, cases));
+				return nullable(SumType(name, typeParams, cases));
 			}
 		}
 	}

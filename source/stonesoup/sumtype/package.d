@@ -24,7 +24,13 @@ string sumtype(string input) {
 
 	auto output = appender!string;
 
-	output ~= format("struct %s {\n", def.name.upperFirst());
+	if (def.typeParams.length > 0) {
+		auto joined = def.typeParams.join(", ");
+		output ~= format("struct %s(%s) {\n", def.name.upperFirst(), joined);
+	} else {
+		output ~= format("struct %s {\n", def.name.upperFirst());
+	}
+
 	output ~= "    import std.exception: enforce;\n";
 	output ~= "private:\n";
 
@@ -131,8 +137,8 @@ EOF";
 	// basic match expression
 	output ~= "\n";
 	output ~= "    // basic match expression =====================\n";
-	output ~= "    T match(T)(\n";
-	auto delegateArgs = def.cases.map!(c => format("        T delegate(%s) %sFunc", c.name.upperFirst(), c.name.lowerFirst())).join(",\n");
+	output ~= "    _MatchResult match(_MatchResult)(\n";
+	auto delegateArgs = def.cases.map!(c => format("        _MatchResult delegate(%s) %sFunc", c.name.upperFirst(), c.name.lowerFirst())).join(",\n");
 	output ~= format("%s)\n", delegateArgs);
 	output ~= "    {\n";
 	output ~= "        final switch(_tag) {\n";
@@ -146,9 +152,9 @@ EOF";
 	// associative array style match
 	output ~= "\n";
 	output ~= q"EOF
-    alias ReturnDelegate(T) = T delegate();
-    alias MatchExpr(T) = ReturnDelegate!T[Tag]; // unfortunately needed for casting :(
-    T match(T)(ReturnDelegate!T[Tag] delegateMap) {
+    alias ReturnDelegate(_MatchResult) = _MatchResult delegate();
+    alias MatchExpr(_MatchResult) = ReturnDelegate!_MatchResult[Tag]; // unfortunately needed for casting :(
+    _MatchResult match(_MatchResult)(ReturnDelegate!_MatchResult[Tag] delegateMap) {
         if (auto found = _tag in delegateMap) {
             return (*found)();
         } else if (auto found = TagAny in delegateMap) {
@@ -162,23 +168,23 @@ EOF";
 	// visitor-style match expression
 	output ~= "\n";
 	output ~= "    // visitor-style match expression =============\n";
-	output ~= "    abstract class Matcher(T) {\n";
+	output ~= "    abstract class Matcher(_MatchResult) {\n";
 	foreach (c; def.cases) {
 		auto args = c.params.map!(p => format("%s %s", p.type, p.name)).join(", ");
-		output ~= format("        T %s(%s) => any();\n", c.name.lowerFirst(), args);
+		output ~= format("        _MatchResult %s(%s) => any();\n", c.name.lowerFirst(), args);
 	}
-	output ~= "        T any() {\n";
+	output ~= "        _MatchResult any() {\n";
 	output ~= format("            assert(0, \"%s.Matcher.any() called, but not implemented\");\n", def.name.upperFirst());
 	output ~= "        }\n";
 	output ~= "        // convenience method to reduce a little bit of typing:\n";
-	output ~= format("        T match(%s thing) {\n", def.name.upperFirst);
+	output ~= format("        _MatchResult match(%s thing) {\n", def.name.upperFirst);
 	output ~= "            return thing.match(this);\n";
 	output ~= "        }\n";
 	output ~= "    }\n";
 
 	// visit method
 	output ~= "\n";
-	output ~= "    T match(T)(Matcher!T matcher) {\n";
+	output ~= "    _MatchResult match(_MatchResult)(Matcher!_MatchResult matcher) {\n";
 	output ~= "        final switch(_tag) {\n";
 	foreach (c; def.cases) {
 		output ~= format("            case Tag.%s:\n", c.name.upperFirst());
