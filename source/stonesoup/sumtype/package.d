@@ -146,7 +146,7 @@ EOF";
 		output ~= "\n";
 		output ~= "    // basic match expression =====================\n";
 		output ~= "    _MatchResult match(_MatchResult)(\n";
-		auto delegateArgs = def.cases.map!(c => format("        _MatchResult delegate(%s) %sFunc", c.name.upperFirst(), c.name.lowerFirst())).join(",\n");
+		auto delegateArgs = def.cases.map!(c => format("        _MatchResult delegate(ref const(%s)) %sFunc", c.name.upperFirst(), c.name.lowerFirst())).join(",\n");
 		output ~= format("%s)\n", delegateArgs);
 		output ~= "    {\n";
 		output ~= "        final switch(_tag) {\n";
