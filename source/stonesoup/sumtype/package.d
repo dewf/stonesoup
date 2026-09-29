@@ -63,11 +63,14 @@ string caseFuncName(Case c) {
 
 string sumtype(string input,
 			   ExpressionMatchStyles matchStyles = ExpressionMatchStyles.All,
-			   CaseStyle caseStyle = CaseStyle.PascalCase)
+			   CaseStyle caseStyle = CaseStyle.PascalCase,
+			   string file = __FILE__, size_t line = __LINE__)
 {
+	import std.format: format;
+
 	auto sumTypeResult = parseSumType(input);
 	if (!sumTypeResult) {
-		return "static assert(0, \"sumtype: bad format\")";
+		return format("static assert(0, \"sumtype: bad format (file [%s], line %d)\");", file, line);
 	}
 	auto def = sumTypeResult.thing;
 
