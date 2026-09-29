@@ -38,8 +38,8 @@ string caseSpecName(Case c) {
 }
 
 string caseContentType(Case c) {
-	return c.params.match!string(
-		(auto nameOnly) => throw new Exception("caseContentType() called with 'NameOnly' params"),
+	return c.payload.match!string(
+		(auto nameOnly) => throw new Exception("caseContentType() called with 'NameOnly' payload"),
 		(auto singleType) => singleType,
 		(auto namedParams) => c.name.upperFirst() // struct name
 	);
@@ -83,13 +83,13 @@ string sumtype(string input,
 
 	// case type defs (now private)
 	foreach (c; def.cases) {
-		if (c.params.isNameOnly()) {
+		if (c.payload.isNameOnly()) {
 			// nothing to output, tag-only
 			output ~= format("    // %s: name only\n", caseSpecName(c));
-		} else if (auto single = c.params.isSingleType()) {
+		} else if (auto single = c.payload.isSingleType()) {
 			// nothing to output, tag + string field in Content
 			output ~= format("    // %s: name+type only, no fields\n", caseSpecName(c));
-		} else if (auto namedParams = c.params.isNamedParams()) {
+		} else if (auto namedParams = c.payload.isNamedParams()) {
 			auto fields = namedParams.map!(p => format("%s %s;", p.type, p.name)).join(" ");
 			output ~= format("    struct %s { %s }\n", caseContentType(c), fields);
 		}
@@ -99,7 +99,7 @@ string sumtype(string input,
 	output ~= "    union Content {\n";
 	foreach (c; def.cases) {
 		output ~=
-			c.params.match!string(
+			c.payload.match!string(
 				(auto nameOnly) => format("        // %s: name only\n", caseFieldName(c)),
 				(auto singleType) => format("        %s %s;\n", singleType, caseFieldName(c)),
 				(auto namedParams) => format("        %s %s;\n", caseContentType(c), caseFieldName(c))
@@ -128,18 +128,18 @@ string sumtype(string input,
 		output ~= format("    // %s ==================================\n", caseSpecName(c));
 		// ctor
 		auto ctorParams =
-			c.params.match!string(
+			c.payload.match!string(
 				(auto nameOnly) => "",
 				(auto singleType) => format("%s value", singleType),
 				(auto namedParams) => namedParams.map!(p => format("%s %s", p.type, p.name)).join(", ")
 			);
 		output ~= format("    static %s make%s(%s) {\n", sumTypeName(def), caseSpecName(c), ctorParams);
 
-		if (c.params.isNameOnly()) {
+		if (c.payload.isNameOnly()) {
 			output ~= "        Content c;\n";
-		} else if (auto singleType = c.params.isSingleType()) {
+		} else if (auto singleType = c.payload.isSingleType()) {
 			output ~= format("        Content c = { %s: value };\n", caseFieldName(c));
-		} else if (auto namedParams = c.params.isNamedParams()) {
+		} else if (auto namedParams = c.payload.isNamedParams()) {
 			auto fieldNames = namedParams.map!(p => p.name).join(", ");
 			output ~= format("        Content c = { %s: %s(%s) };\n", caseFieldName(c), caseContentType(c), fieldNames);
 		}
@@ -147,7 +147,7 @@ string sumtype(string input,
 		output ~= format("        return %s(Tag.%s, c);\n", sumTypeName(def), caseTagName(c));
 		output ~= "    }\n";
 
-		final switch (c.params.tag()) with (CaseParams) {
+		final switch (c.payload.tag()) with (CasePayload) {
 			case Tag.NameOnly:
 				// "is" checker
 				output ~= format("    bool is%s() => _tag == Tag.%s;\n", caseSpecName(c), caseTagName(c));
@@ -214,7 +214,7 @@ EOF";
 		output ~= "    _MatchResult match(_MatchResult)(\n";
 		auto delegateArgs =
 			def.cases.map!(c =>
-				c.params.match!string(
+				c.payload.match!string(
 					(auto nameOnly) => format("        _MatchResult delegate(ref const(_NameOnly)) %sFunc", caseFuncName(c)),
 					(auto singleType) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c)),
 					(auto namedParams) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c))
@@ -225,7 +225,7 @@ EOF";
 		output ~= "        final switch(_tag) {\n";
 		foreach (c; def.cases) {
 			output ~= format("            case Tag.%s:\n", caseTagName(c));
-			final switch (c.params.tag()) with (CaseParams) {
+			final switch (c.payload.tag()) with (CasePayload) {
 				case Tag.NameOnly:
 					output ~= format("                return %sFunc(fakeArg);\n", caseFuncName(c));
 					break;
@@ -263,7 +263,7 @@ EOF";
 		output ~= "    abstract class Matcher(_MatchResult) {\n";
 		foreach (c; def.cases) {
 			auto args =
-				c.params.match!string(
+				c.payload.match!string(
 					(auto nameOnly) => "",
 					(auto singleType) => format("%s value", singleType),
 					(auto namedParams) => namedParams.map!(p => format("%s %s", p.type, p.name)).join(", ")
@@ -286,7 +286,7 @@ EOF";
 		foreach (c; def.cases) {
 			output ~= format("            case Tag.%s:\n", caseTagName(c));
 			auto args =
-				c.params.match!string(
+				c.payload.match!string(
 					(auto nameOnly) => "",
 					(auto singleType) => format("content.%s", caseFieldName(c)),
 					(auto namedParams) => namedParams.map!(p => format("content.%s.%s", caseFieldName(c), p.name)).join(", ")

@@ -35,7 +35,7 @@ struct NamedParam {
 	string name;
 }
 
-struct CaseParams {
+struct CasePayload {
 	enum Tag { NameOnly, SingleType, NamedParams }
 	union Content {
 		string singleType;
@@ -46,28 +46,28 @@ struct CaseParams {
 
 	Tag tag() => _tag;
 
-	static CaseParams makeNameOnly() {
-		return CaseParams(Tag.NameOnly, Content());
+	static CasePayload makeNameOnly() {
+		return CasePayload(Tag.NameOnly, Content());
 	}
 	bool isNameOnly() {
 		return _tag == Tag.NameOnly;
 	}
 
-	static CaseParams makeSingleType(string type) {
+	static CasePayload makeSingleType(string type) {
 		Content c = { singleType: type };
-		return CaseParams(Tag.SingleType, c);
+		return CasePayload(Tag.SingleType, c);
 	}
 	const (string)* isSingleType() {
 		return _tag == Tag.SingleType ? &content.singleType : null;
 	}
 	string singleType() {
-		enforce(_tag == Tag.SingleType, "CaseParams.singleType(): tag didn't match");
+		enforce(_tag == Tag.SingleType, "CasePayload.singleType(): tag didn't match");
 		return content.singleType;
 	}
 
-	static CaseParams makeNamedParams(NamedParam[] params) {
+	static CasePayload makeNamedParams(NamedParam[] params) {
 		Content c = { namedParams: params };
-		return CaseParams(Tag.NamedParams, c);
+		return CasePayload(Tag.NamedParams, c);
 	}
 	const (NamedParam[]) isNamedParams() {
 		return _tag == Tag.NamedParams ? content.namedParams : null;
@@ -93,7 +93,7 @@ struct CaseParams {
 
 struct Case {
 	string name;
-	CaseParams params;
+	CasePayload payload;
 }
 
 T tryToken(T)(Token[] input, int index, T delegate(Token t) func) {
@@ -153,11 +153,11 @@ bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
 				string id;
 				// first check - is it a single unnamed type?
 				if (content.length == 1 && tryToken(content, 0, t => t.isIdentifier(), id)) {
-					outCase = Case(name, CaseParams.makeSingleType(id));
+					outCase = Case(name, CasePayload.makeSingleType(id));
 				} else {
 					// else, assume named things
 					auto params = parseNamedParams(content);
-					outCase = Case(name, CaseParams.makeNamedParams(params));
+					outCase = Case(name, CasePayload.makeNamedParams(params));
 				}
 				// etc should be good
 
@@ -177,7 +177,7 @@ bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
 		}
 		// else
 		// no params, just name
-		outCase = Case(name, CaseParams.makeNameOnly());
+		outCase = Case(name, CasePayload.makeNameOnly());
 		// advance past name
 		advance(input);
 		// comma required unless we're at the end of input
