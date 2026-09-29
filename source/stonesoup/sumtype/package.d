@@ -29,6 +29,34 @@ enum CaseStyle {
 	SnakeCase
 }
 
+string sumTypeName(SumType def) {
+	return def.name.upperFirst();
+}
+
+string caseSpecName(Case c) {
+	return c.name;
+}
+
+string caseStructName(Case c) {
+	return c.name.upperFirst();
+}
+
+string caseFieldName(Case c) {
+	return c.name.lowerFirst();
+}
+
+string caseTagName(Case c) {
+	return c.name.upperFirst();
+}
+
+string caseGetterName(Case c) {
+	return c.name.lowerFirst();
+}
+
+string caseFuncName(Case c) {
+	return c.name.lowerFirst();
+}
+
 string sumtype(string input,
 			   ExpressionMatchStyles matchStyles = ExpressionMatchStyles.All,
 			   CaseStyle caseStyle = CaseStyle.PascalCase)
@@ -41,9 +69,9 @@ string sumtype(string input,
 
 	if (def.typeParams.length > 0) {
 		auto joined = def.typeParams.join(", ");
-		output ~= format("struct %s(%s) {\n", def.name.upperFirst(), joined);
+		output ~= format("struct %s(%s) {\n", sumTypeName(def), joined);
 	} else {
-		output ~= format("struct %s {\n", def.name.upperFirst());
+		output ~= format("struct %s {\n", sumTypeName(def));
 	}
 
 	output ~= "    import std.exception: enforce;\n";
@@ -51,9 +79,7 @@ string sumtype(string input,
 
 	output ~= "    union Content {\n";
 	foreach (c; def.cases) {
-		auto caseUpper = c.name.upperFirst();
-		auto caseLower = c.name.lowerFirst();
-		output ~= format("        %s %s;\n", caseUpper, caseLower);
+		output ~= format("        %s %s;\n", caseStructName(c), caseFieldName(c));
 	}
 	output ~= "    }\n"; // end union Content
 
@@ -61,23 +87,22 @@ string sumtype(string input,
 	output ~= "    Content content;\n";
 	output ~= "public:\n";
 
-	auto tagNames = def.cases.map!(c => c.name.upperFirst()).join(", ");
+	auto tagNames = def.cases.map!(c => caseTagName(c)).join(", ");
 	output ~= format("    enum Tag { %s }\n", tagNames);
 
 	output ~= "    Tag tag() => _tag;\n";
+	// TODO: remove if we don't keep assoc array match
 	output ~= "    enum TagAny = cast(Tag) 1024;\n";
 
 	output ~= "\n";
 
 	// struct defs
 	foreach (c; def.cases) {
-		auto caseUpper = c.name.upperFirst();
-
 		if (c.params.length > 0) {
 			auto fields = c.params.map!(p => format("%s %s;", p.type, p.name)).join(" ");
-			output ~= format("    struct %s { %s }\n", caseUpper, fields);
+			output ~= format("    struct %s { %s }\n", caseStructName(c), fields);
 		} else {
-			output ~= format("    struct %s {}\n", caseUpper);
+			output ~= format("    struct %s {}\n", caseStructName(c));
 		}
 	}
 
@@ -85,26 +110,23 @@ string sumtype(string input,
 
 	// ctor/getters
 	foreach (c; def.cases) {
-		auto caseUpper = c.name.upperFirst();
-		auto caseLower = c.name.lowerFirst();
-
 		// if (i != 0) output ~= "\n";
 		output ~= "\n";
 
-		output ~= format("    // %s ==================================\n", caseUpper);
+		output ~= format("    // %s ==================================\n", caseSpecName(c));
 		// ctor
 		auto ctorParams = c.params.map!(p => format("%s %s", p.type, p.name)).join(", ");
-		output ~= format("    static %s make%s(%s) {\n", def.name.upperFirst(), caseUpper, ctorParams);
+		output ~= format("    static %s make%s(%s) {\n", sumTypeName(def), caseSpecName(c), ctorParams);
 		auto fieldNames = c.params.map!(p => p.name).join(", ");
-		output ~= format("        Content c = { %s: %s(%s) };\n", caseLower, caseUpper, fieldNames);
-		output ~= format("        return %s(Tag.%s, c);\n", def.name.upperFirst(), caseUpper);
+		output ~= format("        Content c = { %s: %s(%s) };\n", caseFieldName(c), caseStructName(c), fieldNames);
+		output ~= format("        return %s(Tag.%s, c);\n", sumTypeName(def), caseTagName(c));
 		output ~= "    }\n";
 		// "is" checker+getter
-		output ~= format("    const (%s)* is%s() => _tag == Tag.%s ? &content.%s : null;\n", caseUpper, caseUpper, caseUpper, caseLower);
+		output ~= format("    const (%s)* is%s() => _tag == Tag.%s ? &content.%s : null;\n", caseStructName(c), caseSpecName(c), caseTagName(c), caseFieldName(c));
 		// force-getter
-		output ~= format("    ref const(%s) %s() {\n", caseUpper, caseLower);
-		output ~= format("        enforce(_tag == Tag.%s, \"%s.%s(): tag doesn't match\");\n", caseUpper, def.name.upperFirst(), caseLower);
-		output ~= format("        return content.%s;\n", caseLower);
+		output ~= format("    ref const(%s) %s() {\n", caseStructName(c), caseGetterName(c));
+		output ~= format("        enforce(_tag == Tag.%s, \"%s.%s(): tag doesn't match\");\n", caseTagName(c), sumTypeName(def), caseGetterName(c));
+		output ~= format("        return content.%s;\n", caseFieldName(c));
 		output ~= "    }\n";
 	}
 
@@ -126,9 +148,8 @@ string sumtype(string input,
         final switch (_tag) {
 EOF";
 	foreach (c; def.cases) {
-		auto caseUpper = c.name.upperFirst();
-		output ~= format("            case Tag.%s:\n", caseUpper);
-		output ~= format("                return inputCases.canFind(\"%s\");\n", caseUpper);
+		output ~= format("            case Tag.%s:\n", caseTagName(c));
+		output ~= format("                return inputCases.canFind(\"%s\");\n", caseSpecName(c));
 	}
 	output ~= "        }\n"; // end final switch
 	output ~= "    }\n"; // end isOneOf()
@@ -144,7 +165,7 @@ EOF";
         import std.algorithm.sorting: sort;
         auto inputCases = caseNames.split(", ").sort();
 EOF";
-	auto caseNames = def.cases.map!(c => format("\"%s\"", c.name.upperFirst())).join(", ");
+	auto caseNames = def.cases.map!(c => format("\"%s\"", caseSpecName(c))).join(", ");
 	output ~= format("        auto checkAgainst = [%s].sort();\n", caseNames);
 	output ~= "        return inputCases == checkAgainst;\n";
 	output ~= "    }\n"; // end isExhaustive
@@ -154,13 +175,13 @@ EOF";
 		output ~= "\n";
 		output ~= "    // basic match expression =====================\n";
 		output ~= "    _MatchResult match(_MatchResult)(\n";
-		auto delegateArgs = def.cases.map!(c => format("        _MatchResult delegate(ref const(%s)) %sFunc", c.name.upperFirst(), c.name.lowerFirst())).join(",\n");
+		auto delegateArgs = def.cases.map!(c => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseStructName(c), caseFuncName(c))).join(",\n");
 		output ~= format("%s)\n", delegateArgs);
 		output ~= "    {\n";
 		output ~= "        final switch(_tag) {\n";
 		foreach (c; def.cases) {
-			output ~= format("            case Tag.%s:\n", c.name.upperFirst());
-			output ~= format("                return %sFunc(content.%s);\n", c.name.lowerFirst(), c.name.lowerFirst());
+			output ~= format("            case Tag.%s:\n", caseTagName(c));
+			output ~= format("                return %sFunc(content.%s);\n", caseFuncName(c), caseFieldName(c));
 		}
 		output ~= "        }\n"; // end final switch
 		output ~= "    }\n"; // end basic match expression
@@ -179,7 +200,7 @@ EOF";
 // 			return (*found)();
 // 		} else {
 // EOF";
-// 		output ~= format("            throw new Exception(\"%s.match() - unhandled tag(%%s)\", _tag.stringof);\n", def.name.upperFirst());
+// 		output ~= format("            throw new Exception(\"%s.match() - unhandled tag(%%s)\", _tag.stringof);\n", sumTypeName(def));
 // 		output ~= "        }\n"; // end else
 // 		output ~= "    }\n"; // end AA style match
 // 	}
@@ -191,25 +212,25 @@ EOF";
 		output ~= "    abstract class Matcher(_MatchResult) {\n";
 		foreach (c; def.cases) {
 			auto args = c.params.map!(p => format("%s %s", p.type, p.name)).join(", ");
-			output ~= format("        _MatchResult %s(%s) => any();\n", c.name.lowerFirst(), args);
+			output ~= format("        _MatchResult %s(%s) => any();\n", caseFuncName(c), args);
 		}
 		output ~= "        _MatchResult any() {\n";
-		output ~= format("            assert(0, \"%s.Matcher.any() called, but not implemented\");\n", def.name.upperFirst());
+		output ~= format("            assert(0, \"%s.Matcher.any() called, but not implemented\");\n", sumTypeName(def));
 		output ~= "        }\n";
-		output ~= "        // convenience method to reduce a little bit of typing:\n";
-		output ~= format("        _MatchResult match(%s thing) {\n", def.name.upperFirst);
-		output ~= "            return thing.match(this);\n";
-		output ~= "        }\n";
-		output ~= "    }\n";
+		// output ~= "        // convenience method to reduce a little bit of typing:\n";
+		// output ~= format("        _MatchResult match(%s thing) {\n", sumTypeName(def));
+		// output ~= "            return thing.match(this);\n";
+		// output ~= "        }\n";
+		output ~= "    }\n"; // end Matcher base class
 
 		// visit method
 		output ~= "\n";
 		output ~= "    _MatchResult match(_MatchResult)(Matcher!_MatchResult matcher) {\n";
 		output ~= "        final switch(_tag) {\n";
 		foreach (c; def.cases) {
-			output ~= format("            case Tag.%s:\n", c.name.upperFirst());
-			auto args = c.params.map!(p => format("content.%s.%s", c.name.lowerFirst(), p.name)).join(", ");
-			output ~= format("                return matcher.%s(%s);\n", c.name.lowerFirst(), args);
+			output ~= format("            case Tag.%s:\n", caseTagName(c));
+			auto args = c.params.map!(p => format("content.%s.%s", caseFieldName(c), p.name)).join(", ");
+			output ~= format("                return matcher.%s(%s);\n", caseFuncName(c), args);
 		}
 		output ~= "        }\n"; // end final switch
 		output ~= "    }\n"; // end match()
