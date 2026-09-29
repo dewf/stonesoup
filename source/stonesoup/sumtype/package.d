@@ -65,9 +65,11 @@ string sumtype(string input,
 			   ExpressionMatchStyles matchStyles = ExpressionMatchStyles.All,
 			   CaseStyle caseStyle = CaseStyle.PascalCase)
 {
-	auto maybeSumType = parseSumType(input);
-	if (maybeSumType.isNull) return "static assert(0, \"sumtype: bad format\")";
-	auto def = maybeSumType.get();
+	auto sumTypeResult = parseSumType(input);
+	if (!sumTypeResult) {
+		return "static assert(0, \"sumtype: bad format\")";
+	}
+	auto def = sumTypeResult.thing;
 
 	auto output = appender!string;
 

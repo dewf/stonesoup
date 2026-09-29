@@ -1,33 +1,76 @@
 module stonesoup.sumtype.parser;
 
-import std.stdio;
 import stonesoup.sumtype.tokenizer: Token, tokenize;
 import std.typecons: Nullable, nullable;
 import std.exception: enforce;
 
-Token[] contentBetween(Token.Tag start, Token.Tag end, Token[] input, out Token[] etc) {
-	if (input.length == 0) return null;
-	if (input[0].tag == start) {
-		// seek to end tag, ignoring nested
-		int i = 1;
-		int level;
-		while (i < input.length) {
-			if (input[i].tag == start) {
-				level++;
-			} else if (input[i].tag == end) {
-				if (level > 0) {
-					level--;
-				} else {
-					// done! return inner content + etc
-					etc = input[i + 1 .. $]; // +1 to skip the end token!
-					return input[1 .. i];    // up to the end token
-				}
-			}
-			i++;
-		}
-		// oops, went past the end
+T tryToken(T)(Token[] input, int index, T delegate(Token t) func) {
+	if (input.length > index) {
+		return func(input[index]);
 	}
-	return null;
+	return T.init;
+}
+
+struct ParseResult(T) {
+	bool _success;
+	T thing;
+	Token[] etc;
+	bool opCast(T: bool)() const {
+		return _success;
+	}
+	static ParseResult success(T thing, Token[] etc) {
+		return ParseResult!T(true, thing, etc);
+	}
+	static ParseResult fail() {
+		return ParseResult!T(false);
+	}
+}
+
+ParseResult!string parseIdentifier(Token[] input) {
+	if (auto id = tryToken(input, 0, t => t.isIdentifier)) {
+		return ParseResult!string.success(id, input[1..$]);
+	}
+	return ParseResult!string.fail();
+}
+
+ParseResult!bool parseCommaOrEnd(Token[] input) {
+	if (input.length == 0) {
+		return ParseResult!bool.success(true, input); // already at end, no need to advance
+	} else if (tryToken(input, 0, t => t.isComma())) {
+		return ParseResult!bool.success(true, input[1..$]);
+	} else {
+		// something amiss ...
+		return ParseResult!bool.fail();
+	}
+}
+
+ParseResult!(Token[]) parseContentBetween(Token[] input, Token.Tag start, Token.Tag end) {
+	if (input.length >= 2) {
+		if (input[0].tag == start) {
+			// seek to end tag, ignoring nested
+			int i = 1;
+			int level;
+			while (i < input.length) {
+				if (input[i].tag == start) {
+					level++;
+				} else if (input[i].tag == end) {
+					if (level > 0) {
+						level--;
+					} else {
+						// done! return inner content + etc
+						auto inner = input[1 .. i];   // up to the end token
+						auto etc = input[i + 1 .. $]; // +1 to skip the end token!
+						return ParseResult!(Token[]).success(inner, etc);
+					}
+				}
+				i++;
+			}
+			// oops, went past the end
+		}
+		// start tag didn't match
+	}
+	// input wasn't even long enough for start/end tokens!
+	return ParseResult!(Token[]).fail();
 }
 
 struct NamedParam {
@@ -96,65 +139,9 @@ struct Case {
 	CasePayload payload;
 }
 
-struct ParseResult(T) {
-	bool _success;
-	T thing;
-	Token[] etc;
-	bool opCast(T: bool)() const {
-		return _success;
-	}
-	static ParseResult success(T thing, Token[] etc) {
-		return ParseResult!T(true, thing, etc);
-	}
-	static ParseResult fail() {
-		return ParseResult!T(false);
-	}
-}
-
-ParseResult!bool parseCommaOrEnd(Token[] input) {
-	if (input.length == 0) {
-		return ParseResult!bool.success(true, input); // already at end, no need to advance
-	} else if (tryToken(input, 0, t => t.isComma())) {
-		return ParseResult!bool.success(true, input[1..$]);
-	} else {
-		// something amiss ...
-		return ParseResult!bool.fail();
-	}
-}
-
-T tryToken(T)(Token[] input, int index, T delegate(Token t) func) {
-	if (input.length > index) {
-		return func(input[index]);
-	}
-	return T.init;
-}
-
-bool tryToken(T)(Token[] input, int index, T delegate(Token t) func, out T outVar) {
-	if (input.length > index) {
-		outVar = func(input[index]);
-		return true;
-	}
-	return false;
-}
-
-void advance(ref Token[] tokens) {
-	if (tokens.length > 0) {
-		tokens = tokens[1..$];
-	} else {
-		throw new Exception("advance() on tokens failed - none left!");
-	}
-}
-
 ParseResult!NamedParam parseNamedParam(Token[] input) {
 	if (auto type = tryToken(input, 0, t => t.isIdentifier())) {
 		if (auto name = tryToken(input, 1, t => t.isIdentifier())) {
-			// auto outParam = NamedParam(type, name);
-			// Token[] etc;
-			// if (tryToken(input, 2, t => t.isComma())) {
-			// 	etc = input[3..$];
-			// } else {
-			// 	etc = input[2..$];
-			// }
 			return ParseResult!NamedParam.success(NamedParam(type, name), input[2..$]);
 		}
 	}
@@ -179,64 +166,59 @@ ParseResult!(NamedParam[]) parseNamedParams(Token[] input) {
 	return ParseResult!(NamedParam[]).fail();
 }
 
-bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
-	if (auto name = tryToken(input, 0, t => t.isIdentifier())) {
-		// does it have params?
-		if (tryToken(input, 1, t => t.isLeftParen())) {
-			if (auto content = contentBetween(Token.Tag.LeftParen, Token.Tag.RightParen, input[1..$], etc)) {
-				string id;
-				// first check - is it a single unnamed type?
-				if (content.length == 1 && tryToken(content, 0, t => t.isIdentifier(), id)) {
-					outCase = Case(name, CasePayload.makeSingleType(id));
-				} else if (auto pnpResult = parseNamedParams(content)) {
-					outCase = Case(name, CasePayload.makeNamedParams(pnpResult.thing));
-				}
-				// etc should be good
-
-				// comma required unless we're at the end of input
-				if (auto commaResult = parseCommaOrEnd(etc)) {
-					etc = commaResult.etc;
-					return true;
-				} else {
-					// neither comma nor end, boo
-					return false;
-				}
-			}
-			// had left parent, but couldn't match to right, bad!
-			return false;
+ParseResult!string parseSingleType(Token[] input) {
+	if (auto result = parseIdentifier(input)) {
+		if (result.etc.length == 0) {
+			return ParseResult!string.success(result.thing, result.etc);
 		}
-		// else
-		// no params, just name
-		outCase = Case(name, CasePayload.makeNameOnly());
-		// advance past name
-		advance(input);
-		// comma required unless we're at the end of input
-		if (input.length > 0 && input[0].isComma()) {
-			// OK
-			etc = input[1..$];
-			return true;
-		} else if (input.length == 0) {
-			// nothing more, no comma needed
-			etc = input;
-			return true;
-		} else {
-			// else neither comma nor end of stream, bad
-			return false;
-		}
+		// else had some other crap
 	}
-	// not even a name - totally bad
-	return false;
+	// else not an identifier
+	return ParseResult!string.fail();
 }
 
-Case[] parseCases(Token[] input) {
+ParseResult!Case parseCase(Token[] input) {
+	if (auto nameResult = parseIdentifier(input)) {
+		// does it have params + content?
+		if (auto contentResult = parseContentBetween(nameResult.etc, Token.Tag.LeftParen, Token.Tag.RightParen)) {
+			auto content = contentResult.thing;
+			auto etc = contentResult.etc;
+
+			if (auto singleType = parseSingleType(content)) {
+				auto c = Case(nameResult.thing, CasePayload.makeSingleType(singleType.thing));
+				return ParseResult!Case.success(c, etc);
+			} else if (auto namedParams = parseNamedParams(content)) {
+				auto c = Case(nameResult.thing, CasePayload.makeNamedParams(namedParams.thing));
+				return ParseResult!Case.success(c, etc);
+			} else {
+				// otherwise unexpected
+				return ParseResult!Case.fail();
+			}
+		} else {
+			// just a name
+			auto c = Case(nameResult.thing, CasePayload.makeNameOnly());
+			return ParseResult!Case.success(c, nameResult.etc);
+		}
+	} // else no identifier
+	return ParseResult!Case.fail();
+}
+
+ParseResult!(Case[]) parseCases(Token[] input) {
 	Case[] cases;
-	Case current;
-	Token[] etc;
-	while (input.length > 0 && parseCase(input, current, etc)) {
-		cases ~= current;
-		input = etc;
+	while (auto caseResult = parseCase(input)) {
+		cases ~= caseResult.thing;
+		if (auto commaOrEnd = parseCommaOrEnd(caseResult.etc)) {
+			input = commaOrEnd.etc;
+		} else {
+			// missing required comma (or end of input)
+			return ParseResult!(Case[]).fail();
+		}
 	}
-	return cases;
+	if (cases.length > 0) {
+		return ParseResult!(Case[]).success(cases, input); // input effectively etc
+	}
+	// not a single case!
+	return ParseResult!(Case[]).fail();
 }
 
 struct SumType {
@@ -245,54 +227,48 @@ struct SumType {
 	Case[] cases;
 }
 
-string[] parseTypeParams(Token[] input) {
+ParseResult!(string[]) parseTypeParams(Token[] input) {
 	string[] typeParams;
-	string current;
-	while(tryToken(input, 0, t => t.isIdentifier(), current)) {
-		typeParams ~= current;
-		// advance past identifier
-		advance(input);
-		if (input.length == 0) {
-			// all done
-			return typeParams;
-		} else if (tryToken(input, 0, t => t.isComma())) {
-			// skip comma and continue
-			advance(input);
+	while(auto id = parseIdentifier(input)) {
+		typeParams ~= id.thing;
+
+		if (auto commaOrEnd = parseCommaOrEnd(id.etc)) {
+			input = commaOrEnd.etc;
+		} else {
+			// missing comma, or failed to end
+			return ParseResult!(string[]).fail();
 		}
 	}
-	return null;
+	if (typeParams.length == 0) {
+		// needed at least one ...
+		return ParseResult!(string[]).fail();
+	}
+	return ParseResult!(string[]).success(typeParams, input); // input is effective etc
 }
 
-Nullable!SumType parseSumType(string input) {
+ParseResult!SumType parseSumType(string input) {
 	auto tokens = tokenize(input);
-	if (auto name = tryToken(tokens, 0, t => t.isIdentifier())) {
-		// this advancing is bad in general, because we're mutating something that doesn't only belong to this branch
-		// this this function we don't have any 'else' branches, so it's OK for the moment
-		advance(tokens);
+	if (auto name = parseIdentifier(tokens)) {
+		auto startFrom = name.etc;
 
-		// does it have type parameters?
+		// optional type parameters
 		string[] typeParams;
-		if (tryToken(tokens, 0, t => t.isLeftParen)) {
-			Token[] afterRightParen;
-			if (auto content = contentBetween(Token.Tag.LeftParen, Token.Tag.RightParen, tokens[0..$], afterRightParen)) {
-				if (auto tp = parseTypeParams(content)) {
-					// cool, done
-					typeParams = tp;
-					// advance beyond
-					tokens = afterRightParen;
-				}
+		if (auto content = parseContentBetween(startFrom, Token.Tag.LeftParen, Token.Tag.RightParen)) {
+			if (auto tpResult = parseTypeParams(content.thing)) {
+				typeParams = tpResult.thing;
+				startFrom = content.etc; // outside of right paren
 			}
 		}
 
 		// parse content
-		if (tryToken(tokens, 0, t => t.isLeftBrace)) {
-			// might have something ...
-			Token[] etc_unused;
-			if (auto content = contentBetween(Token.Tag.LeftBrace, Token.Tag.RightBrace, tokens[0..$], etc_unused)) {
-				auto cases = parseCases(content);
-				return nullable(SumType(name, typeParams, cases));
+		if (auto content = parseContentBetween(startFrom, Token.Tag.LeftBrace, Token.Tag.RightBrace)) {
+			if (auto cases = parseCases(content.thing)) {
+				return ParseResult!SumType.success(SumType(name.thing, typeParams, cases.thing), content.etc);
 			}
+			// else had no cases
 		}
+		// else had no braced content
 	}
-	return Nullable!SumType();
+	// else no name
+	return ParseResult!SumType.fail();
 }
