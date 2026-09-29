@@ -19,12 +19,20 @@ string lowerFirst(string s) {
 
 enum ExpressionMatchStyles {
 	Simple = 1,
-	AssocArray = 1 << 1,
-	Visitor = 1 << 2,
-	All = Simple | AssocArray | Visitor
+	Visitor = 1 << 1,
+	All = Simple | Visitor
 }
 
-string sumtype(string input, ExpressionMatchStyles matchStyles = ExpressionMatchStyles.All) {
+enum CaseStyle {
+	CamelCase,
+	PascalCase,
+	SnakeCase
+}
+
+string sumtype(string input,
+			   ExpressionMatchStyles matchStyles = ExpressionMatchStyles.All,
+			   CaseStyle caseStyle = CaseStyle.PascalCase)
+{
 	auto maybeSumType = parseSumType(input);
 	if (maybeSumType.isNull) return "static assert(0, \"sumtype: bad format\")";
 	auto def = maybeSumType.get();
@@ -86,7 +94,7 @@ string sumtype(string input, ExpressionMatchStyles matchStyles = ExpressionMatch
 		output ~= format("    // %s ==================================\n", caseUpper);
 		// ctor
 		auto ctorParams = c.params.map!(p => format("%s %s", p.type, p.name)).join(", ");
-		output ~= format("    static %s mk%s(%s) {\n", def.name.upperFirst(), caseUpper, ctorParams);
+		output ~= format("    static %s make%s(%s) {\n", def.name.upperFirst(), caseUpper, ctorParams);
 		auto fieldNames = c.params.map!(p => p.name).join(", ");
 		output ~= format("        Content c = { %s: %s(%s) };\n", caseLower, caseUpper, fieldNames);
 		output ~= format("        return %s(Tag.%s, c);\n", def.name.upperFirst(), caseUpper);
@@ -158,23 +166,23 @@ EOF";
 		output ~= "    }\n"; // end basic match expression
 	}
 
-	// associative array style match
-	if (matchStyles & ExpressionMatchStyles.AssocArray) {
-		output ~= "\n";
-		output ~= q"EOF
-	alias ReturnDelegate(_MatchResult) = _MatchResult delegate();
-	alias MatchExpr(_MatchResult) = ReturnDelegate!_MatchResult[Tag]; // unfortunately needed for casting :(
-	_MatchResult match(_MatchResult)(ReturnDelegate!_MatchResult[Tag] delegateMap) {
-		if (auto found = _tag in delegateMap) {
-			return (*found)();
-		} else if (auto found = TagAny in delegateMap) {
-			return (*found)();
-		} else {
-EOF";
-		output ~= format("            throw new Exception(\"%s.match() - unhandled tag(%%s)\", _tag.stringof);\n", def.name.upperFirst());
-		output ~= "        }\n"; // end else
-		output ~= "    }\n"; // end AA style match
-	}
+// 	// associative array style match
+// 	if (matchStyles & ExpressionMatchStyles.AssocArray) {
+// 		output ~= "\n";
+// 		output ~= q"EOF
+// 	alias ReturnDelegate(_MatchResult) = _MatchResult delegate();
+// 	alias MatchExpr(_MatchResult) = ReturnDelegate!_MatchResult[Tag]; // unfortunately needed for casting :(
+// 	_MatchResult match(_MatchResult)(ReturnDelegate!_MatchResult[Tag] delegateMap) {
+// 		if (auto found = _tag in delegateMap) {
+// 			return (*found)();
+// 		} else if (auto found = TagAny in delegateMap) {
+// 			return (*found)();
+// 		} else {
+// EOF";
+// 		output ~= format("            throw new Exception(\"%s.match() - unhandled tag(%%s)\", _tag.stringof);\n", def.name.upperFirst());
+// 		output ~= "        }\n"; // end else
+// 		output ~= "    }\n"; // end AA style match
+// 	}
 
 	// visitor-style match expression
 	if (matchStyles & ExpressionMatchStyles.Visitor) {
