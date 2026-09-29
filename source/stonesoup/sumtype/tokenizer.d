@@ -77,7 +77,10 @@ bool isIdentifierChar(char ch, bool isInitial = false) {
 		return (ch >= 'A' && ch <= 'Z') ||
 			   (ch >= 'a' && ch <= 'z') ||
 			   (ch >= '0' && ch <= '9') ||
-			   (ch == '_' || ch == '.' || ch == '!');
+			    ch == '_' ||
+				ch == '.' ||
+			    ch == '!' ||
+				ch == '[' || ch == ']';
 	}
 }
 
