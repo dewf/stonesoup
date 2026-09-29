@@ -73,14 +73,16 @@ struct CaseParams {
 		return _tag == Tag.NamedParams ? content.namedParams : null;
 	}
 
+	struct _NameOnly {}
 	T match(T)(
-		T delegate() nameOnlyFunc,
+		T delegate(ref const(_NameOnly)) nameOnlyFunc,
 		T delegate(string) singleTypeFunc,
 		T delegate(ref const(NamedParam[]))  namedParamsFunc)
 	{
+		_NameOnly fakeArg;
 		final switch(_tag) {
 			case Tag.NameOnly:
-				return nameOnlyFunc();
+				return nameOnlyFunc(fakeArg);
 			case Tag.SingleType:
 				return singleTypeFunc(content.singleType);
 			case Tag.NamedParams:
@@ -117,7 +119,7 @@ void advance(ref Token[] tokens) {
 	}
 }
 
-bool parseParam(Token[] input, out NamedParam outParam, out Token[] etc) {
+bool parseNamedParam(Token[] input, out NamedParam outParam, out Token[] etc) {
 	if (auto type = tryToken(input, 0, t => t.isIdentifier())) {
 		if (auto name = tryToken(input, 1, t => t.isIdentifier())) {
 			outParam = NamedParam(type, name);
@@ -136,7 +138,7 @@ NamedParam[] parseNamedParams(Token[] input) {
 	NamedParam[] params;
 	NamedParam current;
 	Token[] etc;
-	while (input.length > 0 && parseParam(input, current, etc)) {
+	while (input.length > 0 && parseNamedParam(input, current, etc)) {
 		params ~= current;
 		input = etc;
 	}
@@ -148,9 +150,17 @@ bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
 		// does it have params?
 		if (tryToken(input, 1, t => t.isLeftParen())) {
 			if (auto content = contentBetween(Token.Tag.LeftParen, Token.Tag.RightParen, input[1..$], etc)) {
-				auto params = parseNamedParams(content);
-				outCase = Case(name, CaseParams.makeNamedParams(params));
+				string id;
+				// first check - is it a single unnamed type?
+				if (content.length == 1 && tryToken(content, 0, t => t.isIdentifier(), id)) {
+					outCase = Case(name, CaseParams.makeSingleType(id));
+				} else {
+					// else, assume named things
+					auto params = parseNamedParams(content);
+					outCase = Case(name, CaseParams.makeNamedParams(params));
+				}
 				// etc should be good
+
 				// comma required unless we're at the end of input
 				if (etc.length > 0 && etc[0].isComma()) {
 					etc = etc[1..$];

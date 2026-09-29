@@ -39,7 +39,7 @@ string caseSpecName(Case c) {
 
 string caseContentType(Case c) {
 	return c.params.match!string(
-		() => throw new Exception("caseContentType() called with 'NameOnly' params"),
+		(auto nameOnly) => throw new Exception("caseContentType() called with 'NameOnly' params"),
 		(auto singleType) => singleType,
 		(auto namedParams) => c.name.upperFirst() // struct name
 	);
@@ -81,12 +81,27 @@ string sumtype(string input,
 	output ~= "    import std.exception: enforce;\n";
 	output ~= "private:\n";
 
+	// case type defs (now private)
+	foreach (c; def.cases) {
+		if (c.params.isNameOnly()) {
+			// nothing to output, tag-only
+			output ~= format("    // %s: name only\n", caseSpecName(c));
+		} else if (auto single = c.params.isSingleType()) {
+			// nothing to output, tag + string field in Content
+			output ~= format("    // %s: name+type only, no fields\n", caseSpecName(c));
+		} else if (auto namedParams = c.params.isNamedParams()) {
+			auto fields = namedParams.map!(p => format("%s %s;", p.type, p.name)).join(" ");
+			output ~= format("    struct %s { %s }\n", caseContentType(c), fields);
+		}
+	}
+	output ~= "\n";
+
 	output ~= "    union Content {\n";
 	foreach (c; def.cases) {
 		output ~=
 			c.params.match!string(
-				() => "", // no content, just the tag
-				(auto singleType) => format("        %s %s;", singleType, caseFieldName(c)),
+				(auto nameOnly) => format("        // %s: name only\n", caseFieldName(c)),
+				(auto singleType) => format("        %s %s;\n", singleType, caseFieldName(c)),
 				(auto namedParams) => format("        %s %s;\n", caseContentType(c), caseFieldName(c))
 			);
 	}
@@ -103,22 +118,6 @@ string sumtype(string input,
 	// TODO: remove if we don't keep assoc array match
 	output ~= "    enum TagAny = cast(Tag) 1024;\n";
 
-	output ~= "\n";
-
-	// struct defs
-	foreach (c; def.cases) {
-		if (c.params.isNameOnly()) {
-			// nothing to output, tag-only
-			output ~= format("    // %s: name only\n", caseSpecName(c));
-		} else if (auto single = c.params.isSingleType()) {
-			// nothing to output, tag + string field in Content
-			output ~= format("    // %s: name+type only\n", caseSpecName(c));
-		} else if (auto namedParams = c.params.isNamedParams()) {
-			auto fields = namedParams.map!(p => format("%s %s;", p.type, p.name)).join(" ");
-			output ~= format("    struct %s { %s }\n", caseContentType(c), fields);
-		}
-	}
-
 	// output ~= "\n";
 
 	// ctor/getters
@@ -130,7 +129,7 @@ string sumtype(string input,
 		// ctor
 		auto ctorParams =
 			c.params.match!string(
-				() => "",
+				(auto nameOnly) => "",
 				(auto singleType) => format("%s value", singleType),
 				(auto namedParams) => namedParams.map!(p => format("%s %s", p.type, p.name)).join(", ")
 			);
@@ -211,22 +210,24 @@ EOF";
 	if (matchStyles & ExpressionMatchStyles.Simple) {
 		output ~= "\n";
 		output ~= "    // basic match expression =====================\n";
+		output ~= "    struct _NameOnly {}\n";
 		output ~= "    _MatchResult match(_MatchResult)(\n";
 		auto delegateArgs =
 			def.cases.map!(c =>
 				c.params.match!string(
-					() => format("        _MatchResult delegate() %sFunc", caseFuncName(c)),
+					(auto nameOnly) => format("        _MatchResult delegate(ref const(_NameOnly)) %sFunc", caseFuncName(c)),
 					(auto singleType) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c)),
 					(auto namedParams) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c))
 				)).join(",\n");
 		output ~= format("%s)\n", delegateArgs);
 		output ~= "    {\n";
+		output ~= "        _NameOnly fakeArg;\n";
 		output ~= "        final switch(_tag) {\n";
 		foreach (c; def.cases) {
 			output ~= format("            case Tag.%s:\n", caseTagName(c));
 			final switch (c.params.tag()) with (CaseParams) {
 				case Tag.NameOnly:
-					output ~= format("                return %sFunc();\n", caseFuncName(c));
+					output ~= format("                return %sFunc(fakeArg);\n", caseFuncName(c));
 					break;
 				case Tag.SingleType, Tag.NamedParams:
 					output ~= format("                return %sFunc(content.%s);\n", caseFuncName(c), caseFieldName(c));
@@ -263,7 +264,7 @@ EOF";
 		foreach (c; def.cases) {
 			auto args =
 				c.params.match!string(
-					() => "",
+					(auto nameOnly) => "",
 					(auto singleType) => format("%s value", singleType),
 					(auto namedParams) => namedParams.map!(p => format("%s %s", p.type, p.name)).join(", ")
 				);
@@ -286,7 +287,7 @@ EOF";
 			output ~= format("            case Tag.%s:\n", caseTagName(c));
 			auto args =
 				c.params.match!string(
-					() => "",
+					(auto nameOnly) => "",
 					(auto singleType) => format("content.%s", caseFieldName(c)),
 					(auto namedParams) => namedParams.map!(p => format("content.%s.%s", caseFieldName(c), p.name)).join(", ")
 				);
