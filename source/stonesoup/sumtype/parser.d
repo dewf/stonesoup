@@ -3,6 +3,7 @@ module stonesoup.sumtype.parser;
 import std.stdio;
 import stonesoup.sumtype.tokenizer: Token, tokenize;
 import std.typecons: Nullable, nullable;
+import std.exception: enforce;
 
 Token[] contentBetween(Token.Tag start, Token.Tag end, Token[] input, out Token[] etc) {
 	if (input.length == 0) return null;
@@ -29,14 +30,68 @@ Token[] contentBetween(Token.Tag start, Token.Tag end, Token[] input, out Token[
 	return null;
 }
 
-struct Param {
+struct NamedParam {
 	string type;
 	string name;
 }
 
+struct CaseParams {
+	enum Tag { NameOnly, SingleType, NamedParams }
+	union Content {
+		string singleType;
+		NamedParam[] namedParams;
+	}
+	Tag _tag;
+	Content content;
+
+	Tag tag() => _tag;
+
+	static CaseParams makeNameOnly() {
+		return CaseParams(Tag.NameOnly, Content());
+	}
+	bool isNameOnly() {
+		return _tag == Tag.NameOnly;
+	}
+
+	static CaseParams makeSingleType(string type) {
+		Content c = { singleType: type };
+		return CaseParams(Tag.SingleType, c);
+	}
+	const (string)* isSingleType() {
+		return _tag == Tag.SingleType ? &content.singleType : null;
+	}
+	string singleType() {
+		enforce(_tag == Tag.SingleType, "CaseParams.singleType(): tag didn't match");
+		return content.singleType;
+	}
+
+	static CaseParams makeNamedParams(NamedParam[] params) {
+		Content c = { namedParams: params };
+		return CaseParams(Tag.NamedParams, c);
+	}
+	const (NamedParam[]) isNamedParams() {
+		return _tag == Tag.NamedParams ? content.namedParams : null;
+	}
+
+	T match(T)(
+		T delegate() nameOnlyFunc,
+		T delegate(string) singleTypeFunc,
+		T delegate(ref const(NamedParam[]))  namedParamsFunc)
+	{
+		final switch(_tag) {
+			case Tag.NameOnly:
+				return nameOnlyFunc();
+			case Tag.SingleType:
+				return singleTypeFunc(content.singleType);
+			case Tag.NamedParams:
+				return namedParamsFunc(content.namedParams);
+		}
+	}
+}
+
 struct Case {
 	string name;
-	Param[] params;
+	CaseParams params;
 }
 
 T tryToken(T)(Token[] input, int index, T delegate(Token t) func) {
@@ -62,10 +117,10 @@ void advance(ref Token[] tokens) {
 	}
 }
 
-bool parseParam(Token[] input, out Param outParam, out Token[] etc) {
+bool parseParam(Token[] input, out NamedParam outParam, out Token[] etc) {
 	if (auto type = tryToken(input, 0, t => t.isIdentifier())) {
 		if (auto name = tryToken(input, 1, t => t.isIdentifier())) {
-			outParam = Param(type, name);
+			outParam = NamedParam(type, name);
 			if (tryToken(input, 2, t => t.isComma())) {
 				etc = input[3..$];
 			} else {
@@ -77,9 +132,9 @@ bool parseParam(Token[] input, out Param outParam, out Token[] etc) {
 	return false;
 }
 
-Param[] parseParams(Token[] input) {
-	Param[] params;
-	Param current;
+NamedParam[] parseNamedParams(Token[] input) {
+	NamedParam[] params;
+	NamedParam current;
 	Token[] etc;
 	while (input.length > 0 && parseParam(input, current, etc)) {
 		params ~= current;
@@ -93,8 +148,8 @@ bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
 		// does it have params?
 		if (tryToken(input, 1, t => t.isLeftParen())) {
 			if (auto content = contentBetween(Token.Tag.LeftParen, Token.Tag.RightParen, input[1..$], etc)) {
-				auto params = parseParams(content);
-				outCase = Case(name, params);
+				auto params = parseNamedParams(content);
+				outCase = Case(name, CaseParams.makeNamedParams(params));
 				// etc should be good
 				// comma required unless we're at the end of input
 				if (etc.length > 0 && etc[0].isComma()) {
@@ -112,7 +167,7 @@ bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
 		}
 		// else
 		// no params, just name
-		outCase = Case(name, []);
+		outCase = Case(name, CaseParams.makeNameOnly());
 		// advance past name
 		advance(input);
 		// comma required unless we're at the end of input
