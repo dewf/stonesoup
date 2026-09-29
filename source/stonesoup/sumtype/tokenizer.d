@@ -16,15 +16,17 @@ struct Token {
 	}
 	Tag tag;
 	Content content;
+	int line;
+	int col;
 
-	static Token mkSimple(Tag tag) {
-		return Token(tag, Content());
+	static Token mkSimple(Tag tag, int line, int col) {
+		return Token(tag, Content(), line, col);
 	}
 
-	static Token mkIdentifier(string id) {
+	static Token mkIdentifier(string id, int line, int col) {
 		Content c;
 		c.id = id;
-		return Token(Tag.Identifier, c);
+		return Token(Tag.Identifier, c, line, col);
 	}
 
     string isIdentifier() {
@@ -32,8 +34,8 @@ struct Token {
             return content.id;
         }
         return null;
-
 	}
+
 	bool isComma() => tag == Tag.Comma;
 	bool isLeftParen() => tag == Tag.LeftParen;
 	bool isLeftBrace() => tag == Tag.LeftBrace;
@@ -41,23 +43,38 @@ struct Token {
 	string toString() {
 		final switch(tag) {
 			case Tag.Identifier:
-				return format("Identifier(%s)", content.id);
+				return format("Identifier(%s)[%d:%d]", content.id, line, col);
 			case Tag.LeftBrace:
-				return "LeftBrace";
+				return format("LeftBrace[%d:%d]", line, col);
 			case Tag.RightBrace:
-				return "RightBrace";
+				return format("RightBrace[%d:%d]", line, col);
 			case Tag.LeftParen:
-				return "LeftParen";
+				return format("LeftParen[%d:%d]", line, col);
 			case Tag.RightParen:
-				return "RightParen";
+				return format("RightParen[%d:%d]", line, col);
 			case Tag.Comma:
-				return "Comma";
+				return format("Comma[%d:%d]", line, col);
 		}
 	}
 }
 
 bool isWhitespace(char ch) {
 	return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+}
+
+int wsColumnAdvance(char ch) {
+	switch (ch) {
+		case ' ':
+			return 1;
+		case '\t':
+			return 4; // uhhh
+		case '\r':
+			return 0;
+		case '\n':
+			return 0;
+		default:
+			return 0;
+	}
 }
 
 void skipWhitespace(ref string input) {
@@ -84,69 +101,109 @@ bool isIdentifierChar(char ch, bool isInitial = false) {
 	}
 }
 
-string readIdentifier(string input, out string etc) {
+struct TokenizeResult(T) {
+	bool _success;
+	T thing;
+	string etc;
+	bool opCast(T: bool)() const {
+		return _success;
+	}
+	static TokenizeResult success(T thing, string etc) {
+		return TokenizeResult!T(true, thing, etc);
+	}
+	static TokenizeResult fail() {
+		return TokenizeResult!T(false);
+	}
+}
+
+struct Whitespace {
+	int lines;
+	int cols;
+}
+
+TokenizeResult!Whitespace readWhitespace(string input) {
+	int i;
+	int lines;
+	int cols;
+	while (i < input.length && isWhitespace(input[i])) {
+		if (input[i] == '\n') {
+			cols = 0;
+			lines++;
+		} else {
+			cols += wsColumnAdvance(input[i]);
+		}
+		i++;
+	}
+	if (i > 0) {
+		return TokenizeResult!Whitespace.success(Whitespace(lines, cols), input[i..$]);
+	}
+	return TokenizeResult!Whitespace.fail();
+}
+
+TokenizeResult!string readIdentifier(string input) {
 	if (input.length > 0 && isIdentifierChar(input[0], true)) {
 		int i = 1;
 		while (i < input.length && isIdentifierChar(input[i])) {
 			i++;
 		}
-		etc = input[i .. $];
-		return input[0 .. i].idup();
+		return TokenizeResult!string.success(input[0..i].idup(), input[i..$]);
 	}
-	return null;
+	return TokenizeResult!string.fail();
 }
 
-char readSymbol(string input, out string etc) {
+TokenizeResult!char readSymbol(string input) {
 	if (input.length > 0) {
 		switch (input[0]) {
 			case '{', '}', '(', ')', ',':
-				etc = input[1..$];
-				return input[0];
+				return TokenizeResult!char.success(input[0], input[1..$]);
 			default:
-				return 0;
+				return TokenizeResult!char.fail();
 		}
 	}
-	return 0;
-}
-
-bool nextToken(string input, out Token outToken, out string etc) {
-	skipWhitespace(input);
-	if (auto id = readIdentifier(input, etc)) {
-		outToken = Token.mkIdentifier(id);
-		return true;
-	} else if (auto sym = readSymbol(input, etc)) {
-		with(Token)
-		switch (sym) {
-			case '{':
-				outToken = Token.mkSimple(Tag.LeftBrace);
-				break;
-			case '}':
-				outToken = Token.mkSimple(Tag.RightBrace);
-				break;
-			case '(':
-				outToken = Token.mkSimple(Tag.LeftParen);
-				break;
-			case ')':
-				outToken = Token.mkSimple(Tag.RightParen);
-				break;
-			case ',':
-				outToken = Token.mkSimple(Tag.Comma);
-				break;
-			default:
-				assert(0, "unknown symbol");
-		}
-		return true;
-	}
-	return false;
+	return TokenizeResult!char.fail();
 }
 
 Token[] tokenize(string input) {
 	Token[] tokens;
-	Token current;
-	string etc;
-	while (input.length > 0 && nextToken(input, current, etc)) {
-		input = etc;
-		tokens ~= current;
+	int line;
+	int col;
+	while (input.length > 0) {
+		if (auto ws = readWhitespace(input)) {
+			if (ws.thing.lines > 0) {
+				line += ws.thing.lines;
+				col = 0;
+			}
+			col += ws.thing.cols;
+			input = ws.etc;
+		} else if (auto id = readIdentifier(input)) {
+			tokens ~= Token.mkIdentifier(id.thing, line, col);
+			col += id.thing.length;
+			input = id.etc;
+		} else if (auto sym = readSymbol(input)) {
+			switch (sym.thing) {
+			case '{':
+				tokens ~= Token.mkSimple(Token.Tag.LeftBrace, line, col);
+				break;
+			case '}':
+				tokens ~= Token.mkSimple(Token.Tag.RightBrace, line, col);
+				break;
+			case '(':
+				tokens ~= Token.mkSimple(Token.Tag.LeftParen, line, col);
+				break;
+			case ')':
+				tokens ~= Token.mkSimple(Token.Tag.RightParen, line, col);
+				break;
+			case ',':
+				tokens ~= Token.mkSimple(Token.Tag.Comma, line, col);
+				break;
+			default:
+				throw new Exception("tokenization error: unknown symbol");
+			}
+			col += 1;
+			input = sym.etc;
+		} else {
+			throw new Exception("tokenization error");
+		}
 	}
 	return tokens;
 }
