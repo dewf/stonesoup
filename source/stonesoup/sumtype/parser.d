@@ -96,6 +96,32 @@ struct Case {
 	CasePayload payload;
 }
 
+struct ParseResult(T) {
+	bool _success;
+	T thing;
+	Token[] etc;
+	bool opCast(T: bool)() const {
+		return _success;
+	}
+	static ParseResult success(T thing, Token[] etc) {
+		return ParseResult!T(true, thing, etc);
+	}
+	static ParseResult fail() {
+		return ParseResult!T(false);
+	}
+}
+
+ParseResult!bool parseCommaOrEnd(Token[] input) {
+	if (input.length == 0) {
+		return ParseResult!bool.success(true, input); // already at end, no need to advance
+	} else if (tryToken(input, 0, t => t.isComma())) {
+		return ParseResult!bool.success(true, input[1..$]);
+	} else {
+		// something amiss ...
+		return ParseResult!bool.fail();
+	}
+}
+
 T tryToken(T)(Token[] input, int index, T delegate(Token t) func) {
 	if (input.length > index) {
 		return func(input[index]);
@@ -119,30 +145,38 @@ void advance(ref Token[] tokens) {
 	}
 }
 
-bool parseNamedParam(Token[] input, out NamedParam outParam, out Token[] etc) {
+ParseResult!NamedParam parseNamedParam(Token[] input) {
 	if (auto type = tryToken(input, 0, t => t.isIdentifier())) {
 		if (auto name = tryToken(input, 1, t => t.isIdentifier())) {
-			outParam = NamedParam(type, name);
-			if (tryToken(input, 2, t => t.isComma())) {
-				etc = input[3..$];
-			} else {
-				etc = input[2..$];
-			}
-			return true;
+			// auto outParam = NamedParam(type, name);
+			// Token[] etc;
+			// if (tryToken(input, 2, t => t.isComma())) {
+			// 	etc = input[3..$];
+			// } else {
+			// 	etc = input[2..$];
+			// }
+			return ParseResult!NamedParam.success(NamedParam(type, name), input[2..$]);
 		}
 	}
-	return false;
+	return ParseResult!NamedParam.fail();
 }
 
-NamedParam[] parseNamedParams(Token[] input) {
+ParseResult!(NamedParam[]) parseNamedParams(Token[] input) {
 	NamedParam[] params;
-	NamedParam current;
-	Token[] etc;
-	while (input.length > 0 && parseNamedParam(input, current, etc)) {
-		params ~= current;
-		input = etc;
+	while (auto npResult = parseNamedParam(input)) {
+		params ~= npResult.thing;
+		// input = npResult.etc;
+		if (auto commaResult = parseCommaOrEnd(npResult.etc)) {
+			input = commaResult.etc;
+		} else {
+			// missing required comma (or end of input)
+			return ParseResult!(NamedParam[]).fail();
+		}
 	}
-	return params;
+	if (params.length > 0) {
+		return ParseResult!(NamedParam[]).success(params, input); // input is effective etc, see above - also, if the above works, it should be empty
+	}
+	return ParseResult!(NamedParam[]).fail();
 }
 
 bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
@@ -154,21 +188,17 @@ bool parseCase(Token[] input, out Case outCase, out Token[] etc) {
 				// first check - is it a single unnamed type?
 				if (content.length == 1 && tryToken(content, 0, t => t.isIdentifier(), id)) {
 					outCase = Case(name, CasePayload.makeSingleType(id));
-				} else {
-					// else, assume named things
-					auto params = parseNamedParams(content);
-					outCase = Case(name, CasePayload.makeNamedParams(params));
+				} else if (auto pnpResult = parseNamedParams(content)) {
+					outCase = Case(name, CasePayload.makeNamedParams(pnpResult.thing));
 				}
 				// etc should be good
 
 				// comma required unless we're at the end of input
-				if (etc.length > 0 && etc[0].isComma()) {
-					etc = etc[1..$];
-					return true;
-				} else if (etc.length == 0) {
+				if (auto commaResult = parseCommaOrEnd(etc)) {
+					etc = commaResult.etc;
 					return true;
 				} else {
-					// neither comma nor end of stream, bad
+					// neither comma nor end, boo
 					return false;
 				}
 			}
