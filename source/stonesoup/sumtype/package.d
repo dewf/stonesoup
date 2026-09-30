@@ -5,7 +5,7 @@ import stonesoup.sumtype.parser;
 import std.array : appender, join;
 import std.ascii: toUpper, toLower;
 import std.algorithm: map;
-import std.format;
+import std.format: format;
 
 string upperFirst(string s) {
 	if (!s || s.length == 0) return s;
@@ -15,18 +15,6 @@ string upperFirst(string s) {
 string lowerFirst(string s) {
 	if (!s || s.length == 0) return s;
 	return toLower(s[0]) ~ s[1 .. $];
-}
-
-enum ExpressionMatchStyles {
-	Simple = 1,
-	Visitor = 1 << 1,
-	All = Simple | Visitor
-}
-
-enum CaseStyle {
-	CamelCase,
-	PascalCase,
-	SnakeCase
 }
 
 string sumTypeName(SumType def) {
@@ -61,19 +49,13 @@ string caseFuncName(Case c) {
 	return c.name.lowerFirst();
 }
 
-string sumtype(string input,
-			   ExpressionMatchStyles matchStyles = ExpressionMatchStyles.All,
-			   CaseStyle caseStyle = CaseStyle.PascalCase,
-			   string file = __FILE__, size_t line = __LINE__)
+string sumtype(string input, string file = __FILE__, size_t line = __LINE__)
 {
-	import std.format: format;
-
 	auto sumTypeResult = parseSumType(input);
 	if (!sumTypeResult) {
 		return format("static assert(0, \"sumtype: bad format (file [%s], line %d)\");", file, line);
 	}
 	auto def = sumTypeResult.thing;
-
 	auto output = appender!string;
 
 	if (def.typeParams.length > 0) {
@@ -120,8 +102,9 @@ string sumtype(string input,
 	output ~= format("    enum Tag { %s }\n", tagNames);
 
 	output ~= "    Tag tag() => _tag;\n";
+
 	// TODO: remove if we don't keep assoc array match
-	output ~= "    enum TagAny = cast(Tag) 1024;\n";
+	// output ~= "    enum TagAny = cast(Tag) 1024;\n";
 
 	// output ~= "\n";
 
@@ -212,36 +195,34 @@ EOF";
 	output ~= "    }\n"; // end isExhaustive
 
 	// simple match expression
-	if (matchStyles & ExpressionMatchStyles.Simple) {
-		output ~= "\n";
-		output ~= "    // basic match expression =====================\n";
-		output ~= "    struct _NameOnly {}\n";
-		output ~= "    _MatchResult match(_MatchResult)(\n";
-		auto delegateArgs =
-			def.cases.map!(c =>
-				c.payload.match!string(
-					(auto nameOnly) => format("        _MatchResult delegate(ref const(_NameOnly)) %sFunc", caseFuncName(c)),
-					(auto singleType) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c)),
-					(auto namedParams) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c))
-				)).join(",\n");
-		output ~= format("%s)\n", delegateArgs);
-		output ~= "    {\n";
-		output ~= "        _NameOnly fakeArg;\n";
-		output ~= "        final switch(_tag) {\n";
-		foreach (c; def.cases) {
-			output ~= format("            case Tag.%s:\n", caseTagName(c));
-			final switch (c.payload.tag()) with (CasePayload) {
-				case Tag.NameOnly:
-					output ~= format("                return %sFunc(fakeArg);\n", caseFuncName(c));
-					break;
-				case Tag.SingleType, Tag.NamedParams:
-					output ~= format("                return %sFunc(content.%s);\n", caseFuncName(c), caseFieldName(c));
-					break;
-			}
+	output ~= "\n";
+	output ~= "    // basic match expression =====================\n";
+	output ~= "    struct _NameOnly {}\n";
+	output ~= "    _MatchResult match(_MatchResult)(\n";
+	auto delegateArgs =
+		def.cases.map!(c =>
+			c.payload.match!string(
+				(auto nameOnly) => format("        _MatchResult delegate(ref const(_NameOnly)) %sFunc", caseFuncName(c)),
+				(auto singleType) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c)),
+				(auto namedParams) => format("        _MatchResult delegate(ref const(%s)) %sFunc", caseContentType(c), caseFuncName(c))
+			)).join(",\n");
+	output ~= format("%s)\n", delegateArgs);
+	output ~= "    {\n";
+	output ~= "        _NameOnly fakeArg;\n";
+	output ~= "        final switch(_tag) {\n";
+	foreach (c; def.cases) {
+		output ~= format("            case Tag.%s:\n", caseTagName(c));
+		final switch (c.payload.tag()) with (CasePayload) {
+			case Tag.NameOnly:
+				output ~= format("                return %sFunc(fakeArg);\n", caseFuncName(c));
+				break;
+			case Tag.SingleType, Tag.NamedParams:
+				output ~= format("                return %sFunc(content.%s);\n", caseFuncName(c), caseFieldName(c));
+				break;
 		}
-		output ~= "        }\n"; // end final switch
-		output ~= "    }\n"; // end basic match expression
 	}
+	output ~= "        }\n"; // end final switch
+	output ~= "    }\n"; // end basic match expression
 
 // 	// associative array style match
 // 	if (matchStyles & ExpressionMatchStyles.AssocArray) {
@@ -262,45 +243,39 @@ EOF";
 // 	}
 
 	// visitor-style match expression
-	if (matchStyles & ExpressionMatchStyles.Visitor) {
-		output ~= "\n";
-		output ~= "    // visitor-style match expression =============\n";
-		output ~= "    abstract class Matcher(_MatchResult) {\n";
-		foreach (c; def.cases) {
-			auto args =
-				c.payload.match!string(
-					(auto nameOnly) => "",
-					(auto singleType) => format("%s value", singleType),
-					(auto namedParams) => namedParams.map!(p => format("%s %s", p.type, p.name)).join(", ")
-				);
-			output ~= format("        _MatchResult %s(%s) => any();\n", caseFuncName(c), args);
-		}
-		output ~= "        _MatchResult any() {\n";
-		output ~= format("            throw new Exception(\"%s.Matcher.any() called, but not implemented\");\n", sumTypeName(def));
-		output ~= "        }\n";
-		// output ~= "        // convenience method to reduce a little bit of typing:\n";
-		// output ~= format("        _MatchResult match(%s thing) {\n", sumTypeName(def));
-		// output ~= "            return thing.match(this);\n";
-		// output ~= "        }\n";
-		output ~= "    }\n"; // end Matcher base class
-
-		// visit method
-		output ~= "\n";
-		output ~= "    _MatchResult match(_MatchResult)(Matcher!_MatchResult matcher) {\n";
-		output ~= "        final switch(_tag) {\n";
-		foreach (c; def.cases) {
-			output ~= format("            case Tag.%s:\n", caseTagName(c));
-			auto args =
-				c.payload.match!string(
-					(auto nameOnly) => "",
-					(auto singleType) => format("content.%s", caseFieldName(c)),
-					(auto namedParams) => namedParams.map!(p => format("content.%s.%s", caseFieldName(c), p.name)).join(", ")
-				);
-			output ~= format("                return matcher.%s(%s);\n", caseFuncName(c), args);
-		}
-		output ~= "        }\n"; // end final switch
-		output ~= "    }\n"; // end match()
+	output ~= "\n";
+	output ~= "    // visitor-style match expression =============\n";
+	output ~= "    abstract class Matcher(_MatchResult) {\n";
+	foreach (c; def.cases) {
+		auto args =
+			c.payload.match!string(
+				(auto nameOnly) => "",
+				(auto singleType) => format("%s value", singleType),
+				(auto namedParams) => namedParams.map!(p => format("%s %s", p.type, p.name)).join(", ")
+			);
+		output ~= format("        _MatchResult %s(%s) => any();\n", caseFuncName(c), args);
 	}
+	output ~= "        _MatchResult any() {\n";
+	output ~= format("            throw new Exception(\"%s.Matcher.any() called, but not implemented\");\n", sumTypeName(def));
+	output ~= "        }\n";
+	output ~= "    }\n"; // end Matcher base class
+
+	// visit method
+	output ~= "\n";
+	output ~= "    _MatchResult match(_MatchResult)(Matcher!_MatchResult matcher) {\n";
+	output ~= "        final switch(_tag) {\n";
+	foreach (c; def.cases) {
+		output ~= format("            case Tag.%s:\n", caseTagName(c));
+		auto args =
+			c.payload.match!string(
+				(auto nameOnly) => "",
+				(auto singleType) => format("content.%s", caseFieldName(c)),
+				(auto namedParams) => namedParams.map!(p => format("content.%s.%s", caseFieldName(c), p.name)).join(", ")
+			);
+		output ~= format("                return matcher.%s(%s);\n", caseFuncName(c), args);
+	}
+	output ~= "        }\n"; // end final switch
+	output ~= "    }\n"; // end match()
 
 	output ~= "}\n"; // end struct
 
