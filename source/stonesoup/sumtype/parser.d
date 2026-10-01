@@ -28,7 +28,14 @@ struct ParseResult(T) {
 
 ParseResult!string parseIdentifier(Token[] input) {
 	if (auto id = tryToken(input, 0, t => t.isIdentifier)) {
-		return ParseResult!string.success(id, input[1..$]);
+		return ParseResult!string.success(*id, input[1..$]);
+	}
+	return ParseResult!string.fail();
+}
+
+ParseResult!string parseDType(Token[] input) {
+	if (auto dtype = tryToken(input, 0, t => t.isDType())) {
+		return ParseResult!string.success(*dtype, input[1..$]);
 	}
 	return ParseResult!string.fail();
 }
@@ -140,9 +147,9 @@ struct Case {
 }
 
 ParseResult!NamedParam parseNamedParam(Token[] input) {
-	if (auto type = tryToken(input, 0, t => t.isIdentifier())) {
+	if (auto type = tryToken(input, 0, t => t.isDType())) {
 		if (auto name = tryToken(input, 1, t => t.isIdentifier())) {
-			return ParseResult!NamedParam.success(NamedParam(type, name), input[2..$]);
+			return ParseResult!NamedParam.success(NamedParam(*type, *name), input[2..$]);
 		}
 	}
 	return ParseResult!NamedParam.fail();
@@ -167,9 +174,9 @@ ParseResult!(NamedParam[]) parseNamedParams(Token[] input) {
 }
 
 ParseResult!string parseSingleType(Token[] input) {
-	if (auto result = parseIdentifier(input)) {
-		if (result.etc.length == 0) {
-			return ParseResult!string.success(result.thing, result.etc);
+	if (auto dtype = parseDType(input)) {
+		if (dtype.etc.length == 0) {
+			return ParseResult!string.success(dtype.thing, dtype.etc);
 		}
 		// else had some other crap
 	}

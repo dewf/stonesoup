@@ -4,7 +4,8 @@ import std.format;
 
 struct Token {
 	enum Tag {
-		Identifier, // includes dots, must start with capital
+		Identifier,
+		DType,
 		LeftBrace,
 		RightBrace,
 		LeftParen,
@@ -12,7 +13,7 @@ struct Token {
 		Comma
 	}
 	union Content {
-		string id;
+		string text;
 	}
 	Tag tag;
 	Content content;
@@ -24,16 +25,25 @@ struct Token {
 	}
 
 	static Token mkIdentifier(string id, int line, int col) {
-		Content c;
-		c.id = id;
+		Content c = { text: id };
 		return Token(Tag.Identifier, c, line, col);
 	}
-
-    string isIdentifier() {
+    const(string)* isIdentifier() {
         if (tag == Tag.Identifier) {
-            return content.id;
+			return &content.text;
         }
         return null;
+	}
+
+	static Token mkDType(string type, int line, int col) {
+		Content c = { text: type };
+		return Token(Tag.DType, c, line, col);
+	}
+	const(string)* isDType() {
+		if (tag == Tag.DType) {
+			return &content.text;
+		}
+		return null;
 	}
 
 	bool isComma() => tag == Tag.Comma;
@@ -43,7 +53,9 @@ struct Token {
 	string toString() {
 		final switch(tag) {
 			case Tag.Identifier:
-				return format("Identifier(%s)[%d:%d]", content.id, line, col);
+				return format("Identifier(%s)[%d:%d]", content.text, line, col);
+			case Tag.DType:
+				return format("DType(%s)[%d:%d]", content.text, line, col);
 			case Tag.LeftBrace:
 				return format("LeftBrace[%d:%d]", line, col);
 			case Tag.RightBrace:
@@ -94,10 +106,7 @@ bool isIdentifierChar(char ch, bool isInitial = false) {
 		return (ch >= 'A' && ch <= 'Z') ||
 			   (ch >= 'a' && ch <= 'z') ||
 			   (ch >= '0' && ch <= '9') ||
-			    ch == '_' ||
-				ch == '.' ||
-			    ch == '!' ||
-				ch == '[' || ch == ']';
+			    ch == '_';
 	}
 }
 
@@ -163,6 +172,25 @@ TokenizeResult!char readSymbol(string input) {
 	return TokenizeResult!char.fail();
 }
 
+TokenizeResult!string readDType(string input) {
+	if (input.length > 2 && input[0] == '`') { // `` pair with some content between
+		// find index of ending backtick, if any
+		int i = 1;
+		while (i < input.length) {
+			if (input[i] == '`') {
+				// found end index
+				auto content = input[1 .. i];
+				auto etc = input[i + 1 .. $];
+				return TokenizeResult!string.success(content, etc);
+			}
+			i++;
+		}
+		// didn't find end, fall through to below
+	}
+	// did not start
+	return TokenizeResult!string.fail();
+}
+
 Token[] tokenize(string input) {
 	Token[] tokens;
 	int line;
@@ -175,6 +203,10 @@ Token[] tokenize(string input) {
 			}
 			col += ws.thing.cols;
 			input = ws.etc;
+		} else if (auto dtype = readDType(input)) {
+			tokens ~= Token.mkDType(dtype.thing, line, col);
+			col += dtype.thing.length + 2; // include backticks in length
+			input = dtype.etc;
 		} else if (auto id = readIdentifier(input)) {
 			tokens ~= Token.mkIdentifier(id.thing, line, col);
 			col += id.thing.length;
