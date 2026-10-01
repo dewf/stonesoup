@@ -4,7 +4,7 @@ import stonesoup.sumtype.tokenizer: Token, tokenize;
 import std.typecons: Nullable, nullable;
 import std.exception: enforce;
 
-T tryToken(T)(Token[] input, int index, T delegate(Token t) func) {
+T tryToken(T)(Token[] input, size_t index, T delegate(ref Token t) func) { // has to be a pointer! otherwise we're using a Token copy for arg, and eg t.isIdentifier will return a pointer to the COPY's contents - which get overwritten with subsequent `tryToken` calls :(
 	if (input.length > index) {
 		return func(input[index]);
 	}
@@ -27,14 +27,14 @@ struct ParseResult(T) {
 }
 
 ParseResult!string parseIdentifier(Token[] input) {
-	if (auto id = tryToken(input, 0, t => t.isIdentifier)) {
+	if (auto id = tryToken(input, 0, (ref Token t) => t.isIdentifier)) {
 		return ParseResult!string.success(*id, input[1..$]);
 	}
 	return ParseResult!string.fail();
 }
 
 ParseResult!string parseDType(Token[] input) {
-	if (auto dtype = tryToken(input, 0, t => t.isDType())) {
+	if (auto dtype = tryToken(input, 0, (ref Token t) => t.isDType())) {
 		return ParseResult!string.success(*dtype, input[1..$]);
 	}
 	return ParseResult!string.fail();
@@ -43,7 +43,7 @@ ParseResult!string parseDType(Token[] input) {
 ParseResult!bool parseCommaOrEnd(Token[] input) {
 	if (input.length == 0) {
 		return ParseResult!bool.success(true, input); // already at end, no need to advance
-	} else if (tryToken(input, 0, t => t.isComma())) {
+	} else if (tryToken(input, 0, (ref Token t) => t.isComma())) {
 		return ParseResult!bool.success(true, input[1..$]);
 	} else {
 		// something amiss ...
@@ -147,8 +147,8 @@ struct Case {
 }
 
 ParseResult!NamedParam parseNamedParam(Token[] input) {
-	if (auto type = tryToken(input, 0, t => t.isDType())) {
-		if (auto name = tryToken(input, 1, t => t.isIdentifier())) {
+	if (auto type = tryToken(input, 0, (ref Token t) => t.isDType())) {
+		if (auto name = tryToken(input, 1, (ref Token t) => t.isIdentifier())) {
 			return ParseResult!NamedParam.success(NamedParam(*type, *name), input[2..$]);
 		}
 	}
@@ -255,6 +255,7 @@ ParseResult!(string[]) parseTypeParams(Token[] input) {
 
 ParseResult!SumType parseSumType(string input) {
 	auto tokens = tokenize(input);
+
 	if (auto name = parseIdentifier(tokens)) {
 		auto startFrom = name.etc;
 
