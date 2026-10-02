@@ -1,5 +1,7 @@
 module stonesoup.simpleset;
 
+import stonesoup.unit;
+
 private:
 
 // thanks to: https://gist.github.com/9rnsr/4152297
@@ -25,16 +27,16 @@ public:
 
 struct Set(T) {
 private:
-    bool[T] items;
+    Unit[T] items;
 public:
     this(Range)(Range r) {
         foreach (v; r) {
-            items[v] = true;
+            items[v] = Unit();
         }
     }
     this(T[] values...) {
         foreach (v; values) {
-            items[v] = true;
+            items[v] = Unit();
         }
     }
 
@@ -55,11 +57,11 @@ public:
 
     // to avoid errors copying a ref const(Set) to a non-const
     void opAssign(ref const(Set!T) rhs) {
-        items = cast(bool[T]) rhs.items.dup;
+        items = cast(Unit[T]) rhs.items.dup;
     }
 
     void set()(auto ref T rhs) {
-        items[rhs] = true;
+        items[rhs] = Unit();
     }
 
     void opOpAssign(string op)(T rhs) if (op == "~") {
@@ -68,14 +70,14 @@ public:
 
     void set()(T[] toAdd...) {
         foreach (r; toAdd) {
-            items[r] = true;
+            items[r] = Unit();
         }
     }
 
     void clearExcept(T rhs) {
         const present = (rhs in items) != null;
-        items.clear;
-        if (present) items[rhs] = true;
+        items.clear();
+        if (present) items[rhs] = Unit();
     }
 
     void remove(T rhs) {
