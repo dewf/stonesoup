@@ -15,3 +15,6 @@ stonesoup-test-*
 *.o
 *.obj
 *.lst
+
+.sumgen-consent
+
