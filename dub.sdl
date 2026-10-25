@@ -6,3 +6,9 @@ license "MIT"
 
 targetType "library"
 targetPath "./lib"
+
+configuration "unittest" {
+	dependency "silly" version=">=1.1.1"
+	importPaths "tests"
+	sourcePaths "tests"
+}
