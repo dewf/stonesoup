@@ -1,4 +1,4 @@
-module tests;
+module set_tests;
 
 import stonesoup.set : Set;
 

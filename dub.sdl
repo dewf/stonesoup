@@ -8,7 +8,8 @@ targetType "library"
 targetPath "./lib"
 
 configuration "unittest" {
-	dependency "silly" version=">=1.1.1"
-	importPaths "tests"
+	dependency "nusilly" version="~>1.0.0"
+	targetType "library"
 	sourcePaths "tests"
+	importPaths "tests"
 }
