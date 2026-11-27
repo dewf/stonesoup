@@ -126,3 +126,93 @@ unittest {
     auto result = left.intersect(right);
     assert(sorted!int(result.array()) == [3, 4, 5]);
 }
+
+@("dup and rvalue assignment")
+unittest {
+    auto source = Set!int(1, 2, 3);
+    const constSource = Set!int(4, 5, 6);
+
+    auto copy = source.dup();
+    assert(sorted!int(copy.array()) == [1, 2, 3]);
+
+    // Mutating copy must not affect source
+    copy.set(99);
+    assert(!source.contains(99));
+
+    // Assigning rvalues (including .dup() from mutable and const sets)
+    Set!int target;
+    target = source.dup();
+    assert(sorted!int(target.array()) == [1, 2, 3]);
+
+    target = constSource.dup();
+    assert(sorted!int(target.array()) == [4, 5, 6]);
+    target.set(100);
+    assert(!constSource.contains(100));
+
+    target = Set!int(7, 8);
+    assert(sorted!int(target.array()) == [7, 8]);
+
+    target = Set!int.empty;
+    assert(target.isEmpty());
+
+    // Chained assignment
+    Set!int a, b;
+    a = b = constSource.dup();
+    assert(sorted!int(a.array()) == [4, 5, 6]);
+    assert(sorted!int(b.array()) == [4, 5, 6]);
+    b.set(42);
+    assert(!a.contains(42));
+}
+
+@("const and immutable copy and assignment")
+unittest {
+    const cset = Set!int(10, 20, 30);
+    immutable iset = Set!int(40, 50);
+
+    // Copy initialization from const and immutable
+    Set!int fromConst = cset;
+    assert(sorted!int(fromConst.array()) == [10, 20, 30]);
+    fromConst.set(99);
+    assert(!cset.contains(99));
+
+    Set!int fromImmutable = iset;
+    assert(sorted!int(fromImmutable.array()) == [40, 50]);
+
+    // Assignment from const lvalue, immutable lvalue, and const rvalue
+    Set!int target;
+    target = cset;
+    assert(sorted!int(target.array()) == [10, 20, 30]);
+
+    target = iset;
+    assert(sorted!int(target.array()) == [40, 50]);
+
+    const(Set!int) makeConst() => Set!int(70, 80);
+    target = makeConst();
+    assert(sorted!int(target.array()) == [70, 80]);
+}
+
+@("union and intersect with rvalues")
+unittest {
+    auto left = Set!int(1, 2, 3);
+    auto right = Set!int(3, 4, 5);
+
+    auto u1 = left.union_(Set!int(4, 5));
+    assert(sorted!int(u1.array()) == [1, 2, 3, 4, 5]);
+
+    auto u2 = left.union_(right.dup());
+    assert(sorted!int(u2.array()) == [1, 2, 3, 4, 5]);
+
+    auto i1 = left.intersect(Set!int(2, 3, 9));
+    assert(sorted!int(i1.array()) == [2, 3]);
+
+    auto chained = Set!int(10).union_(left.intersect(right));
+    assert(sorted!int(chained.array()) == [3, 10]);
+
+    // Assign results directly into an existing Set
+    Set!int target;
+    target = left.union_(right);
+    assert(sorted!int(target.array()) == [1, 2, 3, 4, 5]);
+
+    target = left.intersect(right);
+    assert(sorted!int(target.array()) == [3]);
+}

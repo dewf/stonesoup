@@ -26,7 +26,7 @@ public:
         }
     }
 
-    this(ref return scope Set!T rhs) {
+    this(ref return scope const(Set!T) rhs) {
         items = rhs.items.dup;
     }
 
@@ -48,9 +48,15 @@ public:
         items.clear;
     }
 
+    ref Set!T opAssign(Set!T rhs) return {
+        items = rhs.items;
+        return this;
+    }
+
     // to avoid errors copying a ref const(Set) to a non-const
-    void opAssign(ref const(Set!T) rhs) {
-        items = cast(Unit[T]) rhs.items.dup;
+    ref Set!T opAssign()(auto ref const(Set!T) rhs) return {
+        items = rhs.items.dup;
+        return this;
     }
 
     void set()(auto ref T rhs) {
@@ -121,7 +127,7 @@ public:
 
     // set operations
     // TODO: operator overloads?
-    Set!T union_(const ref Set!T rhs) const {
+    Set!T union_()(auto ref const(Set!T) rhs) const {
         Set!T result;
         foreach (k, v; items) {
             result.set(k);
@@ -132,7 +138,7 @@ public:
         return result;
     }
 
-    Set!T intersect(const ref Set!T rhs) const {
+    Set!T intersect()(auto ref const(Set!T) rhs) const {
         Set!T result;
         foreach (k, v; rhs.items) {
             if (k in items) {
